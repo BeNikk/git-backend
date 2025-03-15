@@ -6,6 +6,8 @@ const { Octokit } = require("@octokit/rest");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { execSync } = require("child_process");
+
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const GITHUB_USERNAME = "BeNikk";
@@ -15,6 +17,10 @@ app.use(cors());
 app.use(express.json());
 
 const octokit = new Octokit({ auth: GITHUB_TOKEN });
+const hashWithSalt = (secret, salt) => {
+    return crypto.createHmac("sha256", salt).update(secret).digest("hex");
+};
+
 
 function categorizeProjectTheme(projectData) {
     const blockCategories = {
@@ -158,6 +164,61 @@ app.post("/fork", async (req, res) => {
     } catch (error) {
         console.error("Forking error:", error);
         res.status(500).json({ message: "Failed to fork repository", error: error.message });
+    }
+});
+
+app.post("/edit", async (req, res) => {
+    const { repoUrl, secretKey, newFileContent } = req.body;
+
+    if (!repoUrl || !secretKey || !newFileContent) {
+        return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    try {
+        const repoName = repoUrl.split("/").pop().replace(".git", "");
+        const repoPath = path.join(__dirname, repoName);
+
+        if (fs.existsSync(repoPath)) {
+            fs.rmSync(repoPath, { recursive: true, force: true });
+        }
+
+        const git = simpleGit();
+        await git.clone(repoUrl, repoPath);
+        console.log(`Cloned repository: ${repoUrl}`);
+
+        const metadataPath = path.join(repoPath, "metadata.json");
+        if (!fs.existsSync(metadataPath)) {
+            return res.status(400).json({ message: "Metadata file not found" });
+        }
+
+        const metadata = JSON.parse(fs.readFileSync(metadataPath, "utf-8"));
+        const hashedInputKey = crypto.createHash("sha256").update(secretKey).digest("hex");
+
+        if (metadata.hashedKey !== hashedInputKey) {
+            fs.rmSync(repoPath, { recursive: true, force: true });
+            return res.status(403).json({ message: "Invalid secret key" });
+        }
+
+        const newProjectTheme = categorizeProjectTheme(newFileContent);
+        metadata.projectTheme = newProjectTheme;
+
+        fs.writeFileSync(path.join(repoPath, "projectData.json"), JSON.stringify(newFileContent, null, 2));
+        fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2));
+
+        const gitRepo = simpleGit(repoPath);
+        await gitRepo.add(".");
+        await gitRepo.commit("Updated project data");
+        await gitRepo.push("origin", "main");
+
+        fs.rmSync(repoPath, { recursive: true, force: true });
+
+        res.json({
+            message: `Repository '${repoName}' updated successfully!`,
+            newProjectTheme,
+        });
+    } catch (error) {
+        console.error("Error:", error);
+        res.status(500).json({ message: "Failed to update repository", error: error.message });
     }
 });
 

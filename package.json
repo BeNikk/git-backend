@@ -20,6 +20,7 @@
   "homepage": "https://github.com/BeNikk/git-backend#readme",
   "dependencies": {
     "@octokit/rest": "^21.1.1",
+    "archiver": "^7.0.1",
     "cors": "^2.8.5",
     "crypto": "^1.0.1",
     "dotenv": "^16.4.7",

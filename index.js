@@ -7,6 +7,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { execSync } = require("child_process");
+const archiver = require('archiver');
 
 
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
@@ -221,5 +222,56 @@ app.post("/edit", async (req, res) => {
         res.status(500).json({ message: "Failed to update repository", error: error.message });
     }
 });
+
+app.post("/download-repo", async (req, res) => {
+    const { repoUrl } = req.body;
+
+    if (!repoUrl) {
+        return res.status(400).json({ message: "Repository URL is required" });
+    }
+
+    const repoName = repoUrl.split("/").pop().replace(".git", "");
+    const tempDir = path.join(__dirname, "temp", repoName);
+
+    try {
+        if (!fs.existsSync(path.join(__dirname, "temp"))) {
+            fs.mkdirSync(path.join(__dirname, "temp"));
+        }
+
+        console.log(`Cloning ${repoUrl}...`);
+        await simpleGit().clone(repoUrl, tempDir);
+
+        const zipFilePath = path.join(__dirname, "temp", `${repoName}.zip`);
+        const output = fs.createWriteStream(zipFilePath);
+        const archive = archiver("zip", { zlib: { level: 9 } });
+
+        output.on("close", () => {
+            console.log(`ZIP created: ${zipFilePath}`);
+
+            res.download(zipFilePath, `${repoName}.zip`, (err) => {
+                if (err) console.error("Error sending file:", err);
+
+                execSync(`rm -rf ${tempDir}`);
+                fs.unlinkSync(zipFilePath);
+                console.log("Cleanup complete.");
+            });
+        });
+
+        archive.on("error", (err) => {
+            throw err;
+        });
+
+        archive.pipe(output);
+        archive.directory(tempDir, false);
+        archive.finalize();
+
+    } catch (error) {
+        console.error("Error:", error);
+        res.status(500).json({ message: "Failed to process repository", error: error.message });
+
+        if (fs.existsSync(tempDir)) execSync(`rm -rf ${tempDir}`);
+    }
+});
+
 
 app.listen(5000,()=>{console.log(`server running at port ${5000}`)})

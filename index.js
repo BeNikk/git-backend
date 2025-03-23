@@ -273,5 +273,89 @@ app.post("/download-repo", async (req, res) => {
     }
 });
 
+app.post("/create-pr", async (req, res) => {
+    const { forkRepoUrl, baseRepo, title, description, changes } = req.body;
+
+    if (!forkRepoUrl || !baseRepo || !title || !description || !changes) {
+        return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    const repoName = forkRepoUrl.split("/").pop().replace(".git", "");
+    const repoPath = path.join(__dirname, "temp", repoName);
+    const branchName = `pr-${Date.now()}`;
+
+    try {
+        if (fs.existsSync(repoPath)) {
+            fs.rmSync(repoPath, { recursive: true, force: true });
+        }
+
+        console.log(`Cloning ${forkRepoUrl}...`);
+        await simpleGit().clone(forkRepoUrl, repoPath);
+        const git = simpleGit(repoPath);
+
+        await git.checkoutLocalBranch(branchName);
+
+        fs.writeFileSync(path.join(repoPath, "projectData.json"), JSON.stringify(changes, null, 2));
+
+        await git.add(".");
+        await git.commit(`Proposed changes: ${title}`);
+        await git.push("origin", branchName);
+
+        console.log("Creating pull request...");
+        const prResponse = await octokit.pulls.create({
+            owner: baseRepo.split("/")[0],
+            repo: baseRepo.split("/")[1],
+            title,
+            head: `${GITHUB_USERNAME}:${branchName}`,
+            base: "main",
+            body: description,
+        });
+
+        res.json({
+            message: "Pull request created successfully!",
+            prUrl: prResponse.data.html_url,
+        });
+
+    } catch (error) {
+        console.error("PR creation error:", error);
+        res.status(500).json({ message: "Failed to create pull request", error: error.message });
+    } finally {
+        if (fs.existsSync(repoPath)) fs.rmSync(repoPath, { recursive: true, force: true });
+    }
+});
+
+app.post("/create-issue", async (req, res) => {
+    const { baseRepo, title, description } = req.body;
+
+    if (!baseRepo || !title || !description) {
+        return res.status(400).json({ message: "Missing required fields." });
+    }
+
+    const baseRepoFormatted = baseRepo.replace("https://github.com/", "").replace(".git", "");
+    const [owner, repo] = baseRepoFormatted.split("/");
+
+    if (!owner || !repo) {
+        return res.status(400).json({ message: "Invalid base repository format. Use 'owner/repo'." });
+    }
+
+    try {
+        console.log(`Creating issue in ${owner}/${repo}...`);
+        const issueResponse = await octokit.issues.create({
+            owner,
+            repo,
+            title,
+            body: description,
+        });
+
+        res.json({
+            message: "Issue created successfully!",
+            issueUrl: issueResponse.data.html_url,
+        });
+
+    } catch (error) {
+        console.error("Issue creation error:", error);
+        res.status(500).json({ message: "Failed to create issue.", error: error.message });
+    }
+});
 
 app.listen(5000,()=>{console.log(`server running at port ${5000}`)})

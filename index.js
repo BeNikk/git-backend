@@ -358,4 +358,64 @@ app.post("/create-issue", async (req, res) => {
     }
 });
 
+app.get("/previous-commits", async (req, res) => {
+    console.log("test");
+    const { repoUrl } = req.query;
+
+    if (!repoUrl) {
+        return res.status(400).json({ message: "Repository URL is required" });
+    }
+
+    try {
+        const repoName = repoUrl.split("/").pop().replace(".git", "");
+        const repoPath = path.join(__dirname, repoName);
+
+        if (fs.existsSync(repoPath)) {
+            fs.rmSync(repoPath, { recursive: true, force: true });
+        }
+
+        await simpleGit().clone(repoUrl, repoPath);
+        const git = simpleGit(repoPath);
+        
+        const commits = await git.log();
+        
+        const commitData = [];
+
+        for (const commit of commits.all) {
+            await git.checkout(commit.hash);
+
+            const projectDataPath = path.join(repoPath, "projectData.json");
+            const metadataPath = path.join(repoPath, "metadata.json");
+
+            let projectData = null;
+            let metadata = null;
+
+            if (fs.existsSync(projectDataPath)) {
+                projectData = JSON.parse(fs.readFileSync(projectDataPath, "utf-8"));
+            }
+
+            if (fs.existsSync(metadataPath)) {
+                metadata = JSON.parse(fs.readFileSync(metadataPath, "utf-8"));
+            }
+
+            commitData.push({
+                commitHash: commit.hash,
+                message: commit.message,
+                date: commit.date,
+                author: commit.author_name,
+                projectData,
+                metadata
+            });
+        }
+
+        await git.checkout("main");
+        fs.rmSync(repoPath, { recursive: true, force: true });
+        res.json({ commits: commitData });
+    } catch (error) {
+        console.error("Error fetching previous commits:", error);
+        res.status(500).json({ message: "Failed to fetch commit history", error: error.message });
+    }
+});
+
+
 app.listen(5000,()=>{console.log(`server running at port ${5000}`)})

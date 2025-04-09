@@ -418,4 +418,37 @@ app.get("/previous-commits", async (req, res) => {
 });
 
 
+
+app.post("/create-branch", async (req, res) => {
+    const { repoUrl, branchName, projectData } = req.body;
+  
+    const tempDir = path.join(__dirname, "..", "temp-repo");
+  
+    try {
+      if (fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true });
+      }
+  
+      await simpleGit().clone(repoUrl, tempDir);
+  
+      const git = simpleGit(tempDir);
+      await git.checkoutLocalBranch(branchName);
+  
+      const dataFile = path.join(tempDir, "projectData.json");
+      fs.writeFileSync(dataFile, JSON.stringify(projectData, null, 2), "utf-8");
+  
+      await git.add(".");
+      await git.commit(`Created branch ${branchName} with updated project data`);
+      await git.push("origin", branchName);
+  
+      fs.rmSync(tempDir, { recursive: true });
+  
+      res.json({ success: true, message: `Branch ${branchName} created and pushed.` });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+  
+
 app.listen(5000,()=>{console.log(`server running at port ${5000}`)})

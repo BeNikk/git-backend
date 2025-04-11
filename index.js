@@ -449,6 +449,50 @@ app.post("/create-branch", async (req, res) => {
       res.status(500).json({ success: false, error: err.message });
     }
   });
+
+  app.post("/get-all-branches", async (req, res) => {
+    const { repoUrl } = req.body;
+  
+    if (!repoUrl) {
+      return res.status(400).json({ message: "Repository URL is required" });
+    }
+  
+    try {
+      const [owner, repo] = repoUrl
+        .replace("https://github.com/", "")
+        .replace(".git", "")
+        .split("/");
+  
+      const branchesResponse = await octokit.repos.listBranches({
+        owner,
+        repo,
+      });
+  
+      const branches = branchesResponse.data.map((b) => b.name);
+      const results = [];
+  
+      for (const branch of branches) {
+        const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/projectData.json`;
+  
+        try {
+          const response = await fetch(rawUrl);
+          if (!response.ok) throw new Error(`No projectData.json found in branch ${branch}`);
+          const projectData = await response.json();
+  
+          results.push({ branchName: branch, projectData });
+        } catch (err) {
+          console.log(`Skipped ${branch}:`, err.message);
+          results.push({ branchName: branch, projectData: null });
+        }
+      }
+  
+      res.json({ branches: results });
+    } catch (error) {
+      console.error("Error fetching branches:", error);
+      res.status(500).json({ message: "Failed to fetch branches and project data", error: error.message });
+    }
+  });
+  
   
 
 app.listen(5000,()=>{console.log(`server running at port ${5000}`)})

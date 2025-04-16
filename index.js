@@ -492,6 +492,35 @@ app.post("/create-branch", async (req, res) => {
       res.status(500).json({ message: "Failed to fetch branches and project data", error: error.message });
     }
   });
+
+  app.get('/repos', async (req, res) => {
+    try {
+        console.log("hit");
+      const apiUrl = 'https://api.github.com/users/BeNikk/repos';
+      const response = await fetch(apiUrl);
+      if (!response.ok) {
+        throw new Error('Failed to fetch repositories');
+      }
+      
+      const data = await response.json();
+      
+      const repos = data.map(repo => ({
+        name: repo.name,
+        description: repo.description,
+        html_url: repo.html_url,
+        language: repo.language,
+        stars: repo.stargazers_count,
+        forks: repo.forks_count,
+        created_at: repo.created_at,
+        updated_at: repo.updated_at,
+      }));
+      
+      res.json(repos);
+    } catch (error) {
+      console.error('Error fetching repositories:', error);
+      res.status(500).json({ error: 'Failed to fetch repositories' });
+    }
+  });
   
   
 
